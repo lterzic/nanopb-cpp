@@ -1720,6 +1720,28 @@ class Message(ProtoElement):
 
         return msg.SerializeToString()
 
+    def cpp_struct(self, local_defines):
+        cpp_naming_style = NamingStyleC()
+        cpp_struct_name = cpp_naming_style.struct_name(self.desc.name) + '_s'
+        gen_struct_name = Globals.naming_style.struct_name(self.name)
+    
+        # result = '\nstruct ' + cpp_struct_name + ' : public ' + gen_struct_name + ' {\n'
+
+        # size_define = str(self.name) + '_size'
+        # if size_define in local_defines:
+        #     size_defane_name = Globals.naming_style.define_name(size_define)
+        #     result += '#if ' + size_defane_name + '\n'
+        #     result += '    static constexpr auto get_size() noexcept { return '
+        #     result += size_defane_name
+        #     result += '; }\n'
+        #     result += '#endif\n'
+
+        # result += '};\n'
+        # result += 'static_assert(sizeof(%s) == sizeof(%s));\n' % (cpp_struct_name, gen_struct_name)
+        
+        result = 'using %s = %s;\n' % (cpp_struct_name, gen_struct_name)
+        return result
+
 
 # ---------------------------------------------------------------------------
 #                    Processing of entire .proto files
@@ -2272,6 +2294,16 @@ class ProtoFile:
             yield '#endif  /* __cplusplus */\n'
             yield '\n'
 
+        if options.cpp_structs:
+            cpp_namespace = self.fdesc.package.replace('.', '::')
+            yield '\n'
+            yield '#ifdef __cplusplus\n'
+            yield 'namespace ' + cpp_namespace + ' {\n'
+            for msg in self.messages:
+                yield msg.cpp_struct(local_defines) + '\n'
+            yield '}  // namespace ' + cpp_namespace + '\n'
+            yield '#endif  /* __cplusplus */\n'
+
         if Globals.protoc_insertion_points:
             yield '/* @@protoc_insertion_point(eof) */\n'
 
@@ -2504,6 +2536,8 @@ optparser.add_option("-C", "--c-style", dest="c_style", action="store_true", def
     help="Use C naming convention.")
 optparser.add_option("--cpp-oneof-enums", action="store_true", default=False,
     help="Generate enum classes for oneof which members")
+optparser.add_option("--cpp-structs", action="store_true",
+    help="Generate C++ namespaced structs for generated message types")
 
 
 def parse_custom_style(option, opt_str, value, parser):
