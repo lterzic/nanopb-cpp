@@ -1191,6 +1191,7 @@ class OneOf(Field):
         self.anonymous = oneof_options.anonymous_oneof
         self.sort_by_tag = oneof_options.sort_by_tag
         self.has_msg_cb = False
+        self.cpp_enum = oneof_options.cpp_oneof_enums
 
     def add_field(self, field):
         field.union_name = self.name
@@ -1218,8 +1219,17 @@ class OneOf(Field):
         if self.fields:
             if self.has_msg_cb:
                 result += '    pb_callback_t cb_' + Globals.naming_style.var_name(self.name) + ';\n'
-
+            if self.cpp_enum:
+                result += '#ifdef __cplusplus\n'
+                result += '    enum class ' + Globals.naming_style.enum_name(self.name) + '_e : pb_size_t {\n'
+                for index, field in enumerate(self.fields):
+                    delimiter = ',' if index < len(self.fields) - 1 else ''
+                    result += "        %s = %d%s\n" % (Globals.naming_style.enum_entry(field.name), field.tag, delimiter)
+                result += '    } which_' + Globals.naming_style.var_name(self.name) + ';\n'
+                result += '#else\n'
             result += '    pb_size_t which_' + Globals.naming_style.var_name(self.name) + ";\n"
+            if self.cpp_enum:
+                result += '#endif\n'
             if self.anonymous:
                 result += '    union {\n'
             else:
@@ -2492,6 +2502,8 @@ optparser.add_option("--protoc-insertion-points", dest="protoc_insertion_points"
     help="Include insertion point comments in output for use by custom protoc plugins")
 optparser.add_option("-C", "--c-style", dest="c_style", action="store_true", default=False,
     help="Use C naming convention.")
+optparser.add_option("--cpp-oneof-enums", action="store_true", default=False,
+    help="Generate enum classes for oneof which members")
 
 
 def parse_custom_style(option, opt_str, value, parser):
@@ -2566,6 +2578,7 @@ def process_cmdline(args, is_plugin):
 def parse_file(filename, fdesc, options):
     '''Parse a single file. Returns a ProtoFile instance.'''
     toplevel_options = nanopb_pb2.NanoPBOptions()
+    toplevel_options.cpp_oneof_enums = options.cpp_oneof_enums
     for s in options.settings:
         if ':' not in s and '=' in s:
             s = s.replace('=', ':')
