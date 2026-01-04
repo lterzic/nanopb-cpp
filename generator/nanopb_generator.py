@@ -1226,6 +1226,7 @@ class OneOf(Field):
                     delimiter = ',' if index < len(self.fields) - 1 else ''
                     result += "        %s = %d%s\n" % (Globals.naming_style.enum_entry(field.name), field.tag, delimiter)
                 result += '    } which_' + Globals.naming_style.var_name(self.name) + ';\n'
+                result += "    enum { %s = %d };\n" % (Globals.naming_style.enum_entry(self.name) + "_COUNT", len(self.fields))
                 result += '#else\n'
             result += '    pb_size_t which_' + Globals.naming_style.var_name(self.name) + ";\n"
             if self.cpp_enum:
