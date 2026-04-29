@@ -124,6 +124,23 @@ datatypes = {
     (FieldD.TYPE_UINT64, nanopb_pb2.IS_64):   ('uint64_t','UINT64', 10,  8),
 }
 
+reserved_keywords = [
+    "NULL", "alignas", "alignof", "and", "and_eq", "asm", "assert", "auto",
+    "bitand", "bitor", "bool", "break", "case", "catch", "char", "class",
+    "compl", "const", "constexpr", "const_cast", "continue", "decltype",
+    "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+    "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
+    "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private",
+    "protected", "public", "register", "reinterpret_cast", "return", "short",
+    "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+    "switch", "template", "this", "thread_local", "throw", "true", "try",
+    "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual",
+    "void", "volatile", "wchar_t", "while", "xor", "xor_eq", "char8_t",
+    "char16_t", "char32_t", "concept", "consteval", "constinit", "co_await",
+    "co_return", "co_yield", "requires",
+]
+
 class NamingStyle:
     def enum_name(self, name):
         return "_%s" % (name)
@@ -141,7 +158,10 @@ class NamingStyle:
         return "%s" % (name)
 
     def var_name(self, name):
-        return "%s" % (name)
+        val = "%s" % (name)
+        if val in reserved_keywords:
+            val += '_'
+        return val
 
     def enum_entry(self, name):
         return "%s" % (name)
@@ -169,7 +189,10 @@ class NamingStyleC(NamingStyle):
         return self.underscore(name).upper()
 
     def var_name(self, name):
-        return self.underscore(name)
+        val = self.underscore(name)
+        if val in reserved_keywords:
+            val += '_'
+        return val
 
     def enum_entry(self, name):
         return self.underscore(name).upper()
@@ -629,7 +652,18 @@ class Field(ProtoElement):
 
         # Check field rules, i.e. required/optional/repeated.
         if field_options.HasField("label_override"):
+            # Process overrides from nanopb options
             desc.label = field_options.label_override
+        elif hasattr(desc.options, "features"):
+            # For protobuf 'editions', the field presence is set under features
+            field_presence = desc.options.features.field_presence
+            if field_presence == descriptor.FeatureSet.LEGACY_REQUIRED:
+                desc.label = FieldD.LABEL_REQUIRED
+            elif field_presence == descriptor.FeatureSet.EXPLICIT:
+                desc.label = FieldD.LABEL_OPTIONAL
+            elif field_presence == descriptor.FeatureSet.IMPLICIT:
+                desc.label = FieldD.LABEL_OPTIONAL
+                field_options.proto3 = True
 
         if desc.label == FieldD.LABEL_REPEATED:
             self.rules = 'REPEATED'
@@ -1904,7 +1938,7 @@ class MangleNames:
             return "." + typename.split(".")[-1]
 
         canonical_mangled_typename = str(Names(typename.strip(".").split(".")))
-        if not canonical_mangled_typename.startswith(str(self.canonical_base) + "_"):
+        if not canonical_mangled_typename.startswith(str(self.canonical_base) + "_") and self.canonical_base != Names():
             return typename
 
         if self.strip_prefix is not None and typename.startswith(self.strip_prefix):
@@ -2843,6 +2877,11 @@ def main_plugin():
 
     if hasattr(plugin_pb2.CodeGeneratorResponse, "FEATURE_PROTO3_OPTIONAL"):
         response.supported_features = plugin_pb2.CodeGeneratorResponse.FEATURE_PROTO3_OPTIONAL
+
+    if hasattr(plugin_pb2.CodeGeneratorResponse, "FEATURE_SUPPORTS_EDITIONS"):
+        response.supported_features |= plugin_pb2.CodeGeneratorResponse.FEATURE_SUPPORTS_EDITIONS
+        response.minimum_edition = descriptor.EDITION_PROTO2
+        response.maximum_edition = descriptor.EDITION_2024
 
     io.open(sys.stdout.fileno(), "wb").write(response.SerializeToString())
 
