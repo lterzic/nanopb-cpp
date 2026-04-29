@@ -194,6 +194,8 @@ class Globals:
     matched_namemasks = set()
     protoc_insertion_points = False
     naming_style = NamingStyle()
+    cpp_oneof_enums = False
+    cpp_namespace = False
 
 class Names:
     '''Keeps a set of nested names and formats them to C identifier.'''
@@ -1191,7 +1193,7 @@ class OneOf(Field):
         self.anonymous = oneof_options.anonymous_oneof
         self.sort_by_tag = oneof_options.sort_by_tag
         self.has_msg_cb = False
-        self.cpp_enum = oneof_options.cpp_oneof_enums
+        self.cpp_enum = Globals.cpp_oneof_enums
 
     def add_field(self, field):
         field.union_name = self.name
@@ -1221,7 +1223,7 @@ class OneOf(Field):
                 result += '    pb_callback_t cb_' + Globals.naming_style.var_name(self.name) + ';\n'
             if self.cpp_enum:
                 result += '#ifdef __cplusplus\n'
-                result += '    enum class ' + Globals.naming_style.enum_name(self.name) + '_e : pb_size_t {\n'
+                result += '    enum class ' + Globals.naming_style.var_name(self.name) + ' : pb_size_t {\n'
                 for index, field in enumerate(self.fields):
                     delimiter = ',' if index < len(self.fields) - 1 else ''
                     result += "        %s = %d%s\n" % (Globals.naming_style.enum_entry(field.name), field.tag, delimiter)
@@ -1722,26 +1724,9 @@ class Message(ProtoElement):
         return msg.SerializeToString()
 
     def cpp_struct(self, local_defines):
-        cpp_naming_style = NamingStyleC()
-        cpp_struct_name = cpp_naming_style.struct_name(self.desc.name) + '_s'
+        cpp_struct_name = Globals.naming_style.struct_name(self.desc.name)
         gen_struct_name = Globals.naming_style.struct_name(self.name)
-    
-        # result = '\nstruct ' + cpp_struct_name + ' : public ' + gen_struct_name + ' {\n'
-
-        # size_define = str(self.name) + '_size'
-        # if size_define in local_defines:
-        #     size_defane_name = Globals.naming_style.define_name(size_define)
-        #     result += '#if ' + size_defane_name + '\n'
-        #     result += '    static constexpr auto get_size() noexcept { return '
-        #     result += size_defane_name
-        #     result += '; }\n'
-        #     result += '#endif\n'
-
-        # result += '};\n'
-        # result += 'static_assert(sizeof(%s) == sizeof(%s));\n' % (cpp_struct_name, gen_struct_name)
-        
-        result = 'using %s = %s;\n' % (cpp_struct_name, gen_struct_name)
-        return result
+        return 'using %s = %s;\n' % (cpp_struct_name, gen_struct_name)
 
 
 # ---------------------------------------------------------------------------
@@ -2296,13 +2281,15 @@ class ProtoFile:
             yield '\n'
 
         if options.cpp_structs:
-            cpp_namespace = self.fdesc.package.replace('.', '::')
+            cpp_namespace = self.fdesc.package.replace('.', '::') if Globals.cpp_namespace else ''
             yield '\n'
             yield '#ifdef __cplusplus\n'
-            yield 'namespace ' + cpp_namespace + ' {\n'
+            if cpp_namespace:
+                yield 'namespace ' + cpp_namespace + ' {\n'
             for msg in self.messages:
                 yield msg.cpp_struct(local_defines) + '\n'
-            yield '}  // namespace ' + cpp_namespace + '\n'
+            if cpp_namespace:
+                yield '}  // namespace ' + cpp_namespace + '\n'
             yield '#endif  /* __cplusplus */\n'
 
         if Globals.protoc_insertion_points:
@@ -2537,8 +2524,10 @@ optparser.add_option("-C", "--c-style", dest="c_style", action="store_true", def
     help="Use C naming convention.")
 optparser.add_option("--cpp-oneof-enums", action="store_true", default=False,
     help="Generate enum classes for oneof which members")
-optparser.add_option("--cpp-structs", action="store_true",
-    help="Generate C++ namespaced structs for generated message types")
+optparser.add_option("--cpp-structs", action="store_true", default=False,
+    help="Generate C++ using-typedef aliases for generated message types")
+optparser.add_option("--cpp-namespace", action="store_true", default=False,
+    help="Wrap C++ struct aliases in a namespace derived from the proto package")
 
 
 def parse_custom_style(option, opt_str, value, parser):
@@ -2613,7 +2602,6 @@ def process_cmdline(args, is_plugin):
 def parse_file(filename, fdesc, options):
     '''Parse a single file. Returns a ProtoFile instance.'''
     toplevel_options = nanopb_pb2.NanoPBOptions()
-    toplevel_options.cpp_oneof_enums = options.cpp_oneof_enums
     for s in options.settings:
         if ':' not in s and '=' in s:
             s = s.replace('=', ':')
@@ -2650,6 +2638,8 @@ def parse_file(filename, fdesc, options):
 
     Globals.matched_namemasks = set()
     Globals.protoc_insertion_points = options.protoc_insertion_points
+    Globals.cpp_oneof_enums = options.cpp_oneof_enums
+    Globals.cpp_namespace = options.cpp_namespace
 
     # Parse the file
     file_options = get_nanopb_suboptions(fdesc, toplevel_options, Names([filename]))
